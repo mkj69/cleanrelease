@@ -1,0 +1,64 @@
+[source]
+ref = "HEAD"
+
+[public]
+remote = "git@example.com:group/public-research.git"
+branch = "main"
+history = "orphan"
+force = false
+exclude = ["cleanrelease.toml", "notes/", "docs_translated/", "data/", "outputs/", "site/"]
+author_name = "Release Bot"
+author_email = "release@example.invalid"
+message = "Public research release"
+
+[checks]
+max_file_size = 50000000
+utf8_only = true
+charset_allow = []
+forbidden_paths = ["**/*_results.md", "outputs/", "data/private/**"]
+forbidden_regexes = ["/private/workspace", "internal-token-[0-9]+"]
+email_allow = ["CITATION.cff", "pyproject.toml"]
+name_patterns = ["Example Researcher"]
+name_allow = ["CITATION.cff"]
+
+[[checks.scripts]]
+name = "CJK"
+pattern = "[\u3400-\u9fff\uf900-\ufaff]"
+allow = ["docs/examples/**"]
+
+[[checks.regex]]
+name = "internal host"
+pattern = "internal[.]example[.]invalid"
+allow = ["tests/fixtures/**"]
+
+[[checks.commands]]
+name = "strict docs"
+argv = ["mkdocs", "build", "--strict", "-d", "/tmp/cleanrelease-site-check"]
+
+[archive]
+remote = "git@example.com:group/private-archive.git"
+exclude_refs = ["refs/heads/worktree-*", "refs/tags/temporary-*"]
+snapshot_paths = ["notes/"]
+snapshot_branch = "archive-snapshot"
+snapshot_from = "HEAD"
+max_file_size = 50000000
+
+[pages]
+enabled = true
+build = ["mkdocs", "build", "--strict", "-d", "site"]
+output = "site"
+branch = "gh-pages"
+
+[github]
+repo = "group/public-research"
+visibility = "public"
+discussions = true
+pages = true
+homepage = "https://group.example.invalid/public-research/"
+topics = ["research", "python"]
+
+[[github.discussion_categories]]
+name = "General"
+
+[install_check]
+smoke = [["python", "-c", "import research_package"], ["research-tool", "--help"]]

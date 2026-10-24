@@ -1,0 +1,5 @@
+prune source_snapshot
+prune .venv
+prune build
+prune dist
+global-exclude *.pyc
