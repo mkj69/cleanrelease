@@ -65,7 +65,7 @@ history = "orphan" # "orphan" or "keep"
 force = false
 exclude = ["cleanrelease.toml", "notes/", "data/", "outputs/", "docs_translated/"]
 author_name = "Release Bot"
-author_email = "release@example.invalid"
+author_email = "mkj69@users.noreply.github.com"
 
 [checks]
 max_file_size = 50000000

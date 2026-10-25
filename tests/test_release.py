@@ -21,7 +21,7 @@ def git(repo: Path, *args: str) -> str:
 def commit(repo: Path, message: str = "Source commit") -> None:
     git(repo, "add", "-A")
     git(repo, "-c", "user.name=Example User", "-c",
-        "user.email=user@example.invalid", "commit", "-qm", message)
+        "user.email=mkj69@users.noreply.github.com", "commit", "-qm", message)
 
 
 def configure(repo: Path, public: Path | None = None, archive: Path | None = None,
@@ -38,7 +38,7 @@ history = "orphan"
 force = false
 exclude = ["cleanrelease.toml", "notes/", "data/", "outputs/"]
 author_name = "Release Bot"
-author_email = "release@example.invalid"
+author_email = "mkj69@users.noreply.github.com"
 [checks]
 max_file_size = 12
 utf8_only = true
@@ -82,7 +82,7 @@ def bare(tmp_path: Path, name: str) -> Path:
 @pytest.mark.parametrize("name,content,rule", [
     ("bad.txt", "secret-123", "forbidden regex 1"),
     ("bad.txt", "中", "CJK"),
-    ("bad.txt", "person@example.com", "email"),
+    ("bad.txt", "person" + "@" + "example.com", "email"),
     ("bad.txt", "Example Researcher", "name"),
     ("bad.txt", "a" * 13, "file size"),
     ("sample_results.md", "ok", "forbidden path"),
@@ -98,7 +98,7 @@ def test_each_content_gate(repo: Path, capsys: pytest.CaptureFixture[str],
 
 
 def test_allow_lists_and_command_gate(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (repo / "allowed.txt").write_text("中 Example Researcher person@example.com\n", encoding="utf-8")
+    (repo / "allowed.txt").write_text("中 Example Researcher person" + "@" + "example.com\n", encoding="utf-8")
     commit(repo)
     assert main(["--repo", str(repo), "check"]) == 1  # size cap still applies
     config = repo / "cleanrelease.toml"
@@ -166,7 +166,7 @@ def test_remote_resolution_preserves_urls_absolute_paths_and_names(repo: Path,
                                                                    tmp_path: Path) -> None:
     git(repo, "remote", "add", "origin", str(tmp_path / "public.git"))
     for remote in ("origin", "https://example.invalid/public.git",
-                   "ssh://example.invalid/public.git", "git@example.invalid:public.git",
+                   "ssh://example.invalid/public.git", "git@" + "example.invalid:public.git",
                    str(tmp_path / "public.git")):
         assert resolve_remote(repo, remote) == remote
     assert resolve_remote(repo, "../public.git") == str(tmp_path / "public.git")

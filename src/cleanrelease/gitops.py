@@ -65,7 +65,7 @@ def export_tree(repo: Path, commit: str, target: Path, exclude: list[str]) -> No
 
 def identity(config: dict[str, Any]) -> dict[str, str]:
     name = str(config.get("author_name", "Release Bot"))
-    email = str(config.get("author_email", "release@example.invalid"))
+    email = str(config.get("author_email", "mkj69@users.noreply.github.com"))
     return {**os.environ, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
             "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
 

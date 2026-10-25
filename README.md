@@ -30,7 +30,7 @@ Use `--repo PATH` and `--config PATH` before the subcommand to select another re
 
 ## Configuration
 
-The [example config](examples/cleanrelease.toml) shows a research repository. `init` writes a commented starting config.
+The [example config](examples/cleanrelease.toml) shows release checks for this repository. Set the public and archive remotes before publishing. `init` writes a commented starting config.
 
 | Table | Main keys | Effect |
 | --- | --- | --- |
