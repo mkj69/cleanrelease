@@ -15,6 +15,7 @@ from typing import Any
 from .config import EXAMPLE, ConfigError, load, strings, table
 from .gates import check_tree
 from .gitops import ReleaseError, archive, export_tree, git, keep_history, orphan_commit, push, resolve_ref, resolve_remote
+from .public_tree import strip_json, test_public_tree
 
 
 def _run(argv: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -30,11 +31,24 @@ def _check(repo: Path, config: dict[str, Any], temp: Path) -> tuple[str, Path]:
     commit = resolve_ref(repo, str(source.get("ref", "HEAD")))
     tree = temp / "check"
     export_tree(repo, commit, tree, strings(public, "exclude"))
+    strip_settings = public.get("strip_json", {})
+    if not isinstance(strip_settings, dict):
+        raise ConfigError("[public.strip_json] must be a table")
+    if strip_settings.get("enabled", False) and public.get("history", "orphan") == "keep":
+        raise ConfigError("public.strip_json is not supported with keep history")
+    stripped = strip_json(tree, strip_settings)
+    if strip_settings.get("enabled", False):
+        print(f"WARNING: JSON field stripping changed {stripped} files and may desync generated data from its generator", file=sys.stderr)
     violations = check_tree(tree, table(config, "checks"))
     if violations:
         for item in violations:
             print(item, file=sys.stderr)
         raise ReleaseError(f"Check failed: {len(violations)} violation(s)")
+    test_settings = table(config, "test_public_tree")
+    if test_settings.get("enabled", False):
+        test_tree = temp / "test-public"
+        shutil.copytree(tree, test_tree, symlinks=True)
+        test_public_tree(test_tree, test_settings, temp)
     print(f"Check passed: {len([p for p in tree.rglob('*') if p.is_file()])} files")
     return commit, tree
 
@@ -110,7 +124,7 @@ def _github(config: dict[str, Any], dry_run: bool, no_public: bool) -> None:
 
 def _publish(repo: Path, config: dict[str, Any], dry_run: bool,
              force_flag: bool, no_public: bool, temp: Path) -> None:
-    commit, _ = _check(repo, config, temp)
+    commit, checked_tree = _check(repo, config, temp)
     settings = table(config, "public")
     branch = str(settings.get("branch", "main"))
     history = str(settings.get("history", "orphan"))
@@ -119,7 +133,7 @@ def _publish(repo: Path, config: dict[str, Any], dry_run: bool,
     stage = temp / "public"
     stage.mkdir()
     if history == "orphan":
-        export_tree(repo, commit, stage, exclude)
+        shutil.copytree(checked_tree, stage, dirs_exist_ok=True, symlinks=True)
         public_commit = orphan_commit(stage, branch, settings,
                                       str(settings.get("message", "Public release")))
     elif history == "keep":
@@ -136,7 +150,7 @@ def _publish(repo: Path, config: dict[str, Any], dry_run: bool,
         if not build:
             raise ConfigError("pages.build must contain a command when pages is enabled")
         build_tree = temp / "build"
-        export_tree(repo, commit, build_tree, exclude)
+        shutil.copytree(checked_tree, build_tree, symlinks=True)
         _run(build, build_tree)
         output = Path(str(pages.get("output", "site")))
         if output.is_absolute() or ".." in output.parts:

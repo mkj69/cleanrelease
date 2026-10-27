@@ -21,6 +21,16 @@ email_allow = ["pyproject.toml", "examples/cleanrelease.toml", "src/cleanrelease
 name_patterns = []
 name_allow = ["CITATION.cff"]
 
+[test_public_tree]
+enabled = true
+command = ["python", "-m", "pytest", "-q"]
+allow = []
+
+[public.strip_json]
+enabled = false
+paths = ["data/public/**"]
+key_pattern = "^private_"
+
 [archive]
 remote = ""
 exclude_refs = ["refs/heads/worktree-*", "refs/tags/temporary-*"]

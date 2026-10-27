@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -296,3 +297,88 @@ def test_init_writes_parseable_config(tmp_path: Path) -> None:
     assert main(["--repo", str(tmp_path), "init"]) == 0
     assert load(tmp_path / "cleanrelease.toml")["source"]["ref"] == "HEAD"
     assert main(["--repo", str(tmp_path), "init"]) == 1
+
+
+def test_public_tree_skips_private_files_and_blocks_undeclared_imports(
+        repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    remote = bare(tmp_path, "published.git")
+    configure(repo, public=remote, extra=f'''
+[test_public_tree]
+enabled = true
+command = {json.dumps([sys.executable, "-m", "pytest", "-q"])}
+allow = []
+''')
+    config = repo / "cleanrelease.toml"
+    config.write_text(config.read_text().replace("max_file_size = 12", "max_file_size = 2000"))
+    (repo / "pyproject.toml").write_text('''
+[project]
+name = "fake-package"
+version = "0.1"
+dependencies = []
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+''')
+    (repo / "docs_translated").mkdir()
+    (repo / "docs_translated" / "page.md").write_text("private")
+    config.write_text(config.read_text().replace('"outputs/"]', '"outputs/", "docs_translated/"]'))
+    (repo / "site-packages").mkdir()
+    (repo / "site-packages" / "ghostpkg.py").write_text("value = 1\n")
+    (repo / "test_public.py").write_text('''
+from pathlib import Path
+import sys
+import pytest
+
+@pytest.mark.skipif(not Path("docs_translated").exists(), reason="private docs removed")
+def test_private_docs():
+    assert Path("docs_translated/page.md").exists()
+
+def test_dependency():
+    sys.path.insert(0, str(Path(__file__).parent / "site-packages"))
+    import ghostpkg
+    assert ghostpkg.value == 1
+''')
+    commit(repo)
+    assert main(["--repo", str(repo), "publish"]) == 1
+    assert "blocked: undeclared dependency" in capsys.readouterr().err
+    assert not git(remote, "for-each-ref", "--format=%(refname)")
+    config.write_text(config.read_text().replace("allow = []", 'allow = ["ghostpkg"]'))
+    assert main(["--repo", str(repo), "publish", "--dry-run"]) == 0
+    assert main(["--repo", str(repo), "publish"]) == 0
+    names = git(remote, "ls-tree", "-r", "--name-only", "main")
+    assert "docs_translated" not in names
+    assert "__pycache__" not in names
+    assert ".pytest_cache" not in names
+
+
+def test_json_stripping_is_opt_in(repo: Path, tmp_path: Path,
+                                  capsys: pytest.CaptureFixture[str]) -> None:
+    remote = bare(tmp_path, "published.git")
+    configure(repo, public=remote, extra='''
+[public.strip_json]
+enabled = true
+paths = ["payload.json"]
+key_pattern = "^private_|_zh$"
+''')
+    config = repo / "cleanrelease.toml"
+    config.write_text(config.read_text().replace("max_file_size = 12", "max_file_size = 1000"))
+    (repo / "payload.json").write_text('{"nested": [{"private_key": 1, "title_zh": "hi", "title": "ok"}]}\n')
+    commit(repo)
+    assert main(["--repo", str(repo), "publish"]) == 0
+    assert json.loads(git(remote, "show", "main:payload.json")) == {"nested": [{"title": "ok"}]}
+    assert "may desync generated data" in capsys.readouterr().err
+    config.write_text(config.read_text().replace("enabled = true", "enabled = false"))
+    assert main(["--repo", str(repo), "check"]) == 0
+
+
+def test_json_stripping_rejects_keep_history(repo: Path,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    configure(repo, extra='''
+[public.strip_json]
+enabled = true
+paths = ["payload.json"]
+key_pattern = "^private_"
+''')
+    config = repo / "cleanrelease.toml"
+    config.write_text(config.read_text().replace('history = "orphan"', 'history = "keep"'))
+    assert main(["--repo", str(repo), "check"]) == 1
+    assert "not supported with keep history" in capsys.readouterr().err

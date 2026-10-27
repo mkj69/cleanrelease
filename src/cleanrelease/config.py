@@ -91,6 +91,16 @@ allow = ["docs/examples/**"]
 # name = "strict docs"
 # argv = ["mkdocs", "build", "--strict"]
 
+# [test_public_tree]
+# enabled = true
+# command = ["python", "-m", "pytest", "-q"]
+# allow = [] # Extra import roots for environment-specific test dependencies
+
+# [public.strip_json]
+# enabled = true
+# paths = ["data/public/**"]
+# key_pattern = "^private_"
+
 [archive]
 remote = ""
 exclude_refs = ["refs/heads/worktree-*", "refs/tags/temporary-*"]
