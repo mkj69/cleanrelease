@@ -25,6 +25,18 @@ name_allow = ["CITATION.cff"]
 enabled = true
 command = ["python", "-m", "pytest", "-q"]
 allow = []
+require_tools = []
+path = []
+
+# [generated]
+# paths = ["docs/assets/data/**", "docs/assets/video.mp4"]
+# [[generated.freshness]]
+# files = ["docs/assets/data/**"]
+# sources = ["scripts/export_data.py", "data/source.csv"]
+
+# [[live_artifacts]]
+# file = "docs/assets/video.mp4"
+# url = "https://example.org/assets/video.mp4"
 
 [public.strip_json]
 enabled = false

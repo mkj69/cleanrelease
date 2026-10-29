@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from unittest.mock import patch
 import subprocess
 import sys
 from pathlib import Path
@@ -382,3 +383,95 @@ key_pattern = "^private_"
     config.write_text(config.read_text().replace('history = "orphan"', 'history = "keep"'))
     assert main(["--repo", str(repo), "check"]) == 1
     assert "not supported with keep history" in capsys.readouterr().err
+
+
+def test_public_tree_requires_tools_and_extends_path(repo: Path, tmp_path: Path,
+                                                     capsys: pytest.CaptureFixture[str]) -> None:
+    bin_dir = repo / "tools"
+    bin_dir.mkdir()
+    executable = bin_dir / "release-tool"
+    executable.write_text("#!/bin/sh\necho ready\n")
+    executable.chmod(0o755)
+    (repo / "pyproject.toml").write_text('[project]\nname="example"\nversion="1"\n')
+    commit(repo)
+    configure(repo, extra=f'''
+[test_public_tree]
+enabled = true
+command = {json.dumps([sys.executable, "-c", "import subprocess; assert subprocess.check_output(['release-tool']).strip() == b'ready'"])}
+require_tools = ["release-tool"]
+path = ["tools"]
+''')
+    config = repo / "cleanrelease.toml"
+    config.write_text(config.read_text().replace("max_file_size = 12", "max_file_size = 1000"))
+    assert main(["--repo", str(repo), "check"]) == 0
+    (repo / "tools/release-tool").unlink()
+    assert main(["--repo", str(repo), "check"]) == 1
+    assert "require missing tools: release-tool" in capsys.readouterr().err
+
+
+def test_public_tree_reports_missing_tool_skips(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (repo / "pyproject.toml").write_text('[project]\nname="example"\nversion="1"\n[project.optional-dependencies]\ndev=["pytest>=7"]\n')
+    (repo / "test_skip.py").write_text('import pytest\n@pytest.mark.skip(reason="node not on PATH")\ndef test_node(): pass\n')
+    commit(repo)
+    configure(repo, extra=f'''
+[test_public_tree]
+enabled = true
+command = {json.dumps([sys.executable, "-m", "pytest", "-q"])}
+''')
+    config = repo / "cleanrelease.toml"
+    config.write_text(config.read_text().replace("max_file_size = 12", "max_file_size = 1000"))
+    assert main(["--repo", str(repo), "check"]) == 0
+    assert "Possible missing-tool skip:" in capsys.readouterr().err
+
+
+def test_generated_must_match_ref_and_be_newer_than_sources(repo: Path,
+                                                           capsys: pytest.CaptureFixture[str]) -> None:
+    artifact = repo / "render.bin"
+    source = repo / "script.py"
+    source.write_text("one")
+    artifact.write_bytes(b"image")
+    commit(repo)
+    configure(repo, extra='''
+[generated]
+paths = ["render.bin"]
+[[generated.freshness]]
+files = ["render.bin"]
+sources = ["script.py"]
+''')
+    assert main(["--repo", str(repo), "check"]) == 0
+    artifact.write_bytes(b"changed")
+    assert main(["--repo", str(repo), "check"]) == 1
+    assert "commit before publishing" in capsys.readouterr().err
+    commit(repo)
+    assert main(["--repo", str(repo), "check"]) == 0
+    os.utime(source, ns=(artifact.stat().st_mtime_ns + 1_000_000_000,) * 2)
+    assert main(["--repo", str(repo), "check"]) == 1
+    assert "older than sources" in capsys.readouterr().err
+    artifact.unlink()
+    assert main(["--repo", str(repo), "check"]) == 1
+
+
+def test_verify_live_checks_content_length_offline(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    class Response:
+        headers = {"Content-Length": "6"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    configure(repo, extra='''
+[[live_artifacts]]
+file = "public.txt"
+url = "https://example.invalid/public.txt"
+''')
+    with patch("cleanrelease.artifacts.urllib.request.urlopen", return_value=Response()) as fetch:
+        assert main(["--repo", str(repo), "verify-live"]) == 0
+        assert fetch.call_args.args[0].get_method() == "HEAD"
+        Response.headers = {"Content-Length": "9"}
+        try:
+            assert main(["--repo", str(repo), "verify-live"]) == 1
+            assert "size differs" in capsys.readouterr().err
+        finally:
+            Response.headers = {"Content-Length": "6"}

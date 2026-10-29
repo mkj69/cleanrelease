@@ -4,6 +4,8 @@ cleanrelease checks a selected Git tree before it is published. It can also copy
 
 Originally built for the Opulse release.
 
+The [release skill](skills/cleanrelease/SKILL.md) summarizes the pre-merge and post-publish gates.
+
 The tool exists to make release rules visible in a TOML file and repeatable from a terminal or CI job. Source files are read from a committed Git ref. Local edits enter only an explicitly configured archive snapshot.
 
 ## Install
@@ -24,6 +26,7 @@ cleanrelease check
 cleanrelease publish --dry-run
 cleanrelease archive --dry-run
 cleanrelease publish --force
+cleanrelease verify-live # After deployment is serving the new files
 ```
 
 Use `--repo PATH` and `--config PATH` before the subcommand to select another repository or config file. `publish --no-public` skips the visibility change. A dry run runs checks and local builds but leaves remote repositories unchanged.
@@ -41,7 +44,9 @@ The [example config](examples/cleanrelease.toml) shows release checks for this r
 | `checks.regex` | `name`, `pattern`, `allow` | Repeated TOML tables for regular expressions with per rule file allow lists. |
 | `checks.scripts` | `name`, `pattern`, `allow` | Repeated tables for script or charset patterns such as CJK. |
 | `checks.commands` | `name`, `argv` | Repeated commands run in the exported tree. A nonzero exit fails the check. |
-| `test_public_tree` | `enabled`, `command`, `allow` | Optionally run tests on a copy of the exported tree with undeclared installed imports blocked. |
+| `test_public_tree` | `enabled`, `command`, `allow`, `require_tools`, `path` | Optionally run tests on a copy of the exported tree with undeclared installed imports blocked; require tools and prepend directories to PATH. |
+| `generated` | `paths`, `freshness` (`files`, `sources`) | Fail if generated files differ from the selected release ref or are older than their sources. |
+| `live_artifacts` | `file`, `url` | Post-publish `verify-live` compares served Content-Length with the local file. |
 | `archive` | `remote`, `exclude_refs`, `snapshot_paths`, `snapshot_branch`, `snapshot_from`, `max_file_size` | Pushes selected local branches and tags. Optional snapshot copies current files from named paths. |
 | `pages` | `enabled`, `build`, `output`, `branch`, `message` | Builds a site from the exported tree and publishes an orphan site branch. |
 | `github` | `repo`, `visibility`, `discussions`, `pages`, `homepage`, `topics`, `discussion_categories` | Optional settings applied with `gh` after Git pushes. Category names are verified. A missing `gh` skips these settings. |
@@ -58,9 +63,34 @@ Enable the exported tree test gate when the public repository runs tests in CI:
 enabled = true
 command = ["python", "-m", "pytest", "-q"]
 allow = []
+require_tools = ["node", "chromium"]
+path = ["tools/bin"]
 ```
 
 The gate runs during `check` and before any `publish` push, including dry runs. It tests an isolated copy of the selected committed tree after exclusions and optional JSON stripping. Private files removed from the export are unavailable to tests. Tests that require private files should skip when those files are absent. The import guard blocks installed packages outside the core and `dev` dependencies declared in the exported `pyproject.toml`, including available transitive dependencies. Standard library and exported local modules remain accessible. Add import root names to `allow` only when the release CI environment intentionally provides them. This guard is a local simulation, not a substitute for an actual clean CI installation. It does not download dependencies, block arbitrary filesystem access, or enforce dependency version constraints. Use a Python environment with pytest and the project's declared dependencies installed.
+
+List all external executables used by tests in `require_tools`: if any is absent, even when a test would skip, the gate fails before running tests. `path` prepends directories to the test environment's PATH (relative entries resolve from the source repository, absolute entries stay absolute). For pytest, the gate enables `-rs` and prints skip summaries with reasons such as “node not on PATH” to stderr; inspect these even when the gate passes. Other test runners must emit skip summaries themselves to be reported.
+
+### Generated and live artifacts
+
+Regenerate media and data exports **before committing** the release ref. Configure both the release-ref comparison and, when timestamps are meaningful, source freshness:
+
+```toml
+[generated]
+paths = ["docs/assets/data/**", "docs/assets/video.mp4"]
+
+[[generated.freshness]]
+files = ["docs/assets/data/**"]
+sources = ["scripts/export_data.py", "data/source.csv"]
+
+[[live_artifacts]]
+file = "docs/assets/video.mp4"
+url = "https://example.org/assets/video.mp4"
+```
+
+`check` and `publish` compare the selected `[source].ref`'s generated files against working-tree bytes and executable bits, including added or deleted files; a mismatch stops publication. Freshness compares working-tree modification times: every matched generated file must be at least as new as the newest matched source. Timestamp checks are optional (Git does not preserve file mtimes); if used after a fresh checkout, rebuild the artifacts or restore meaningful mtimes first. Missing matches fail rather than silently passing. Configure generated paths in the *source* tree, even if the export excludes them.
+
+After publishing and allowing deployment to finish, run `cleanrelease verify-live`. It sends HTTP HEAD requests and fails on unavailable URLs, missing Content-Length, or a size mismatch with the configured local files. Content-Length is a quick deployment smoke check, not proof of identical bytes: use a content hash or download comparison if exact identity matters. This command makes network requests only when explicitly invoked; all other gates can be tested offline.
 
 ### Optional JSON field stripping
 

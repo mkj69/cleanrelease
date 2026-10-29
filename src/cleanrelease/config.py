@@ -95,6 +95,18 @@ allow = ["docs/examples/**"]
 # enabled = true
 # command = ["python", "-m", "pytest", "-q"]
 # allow = [] # Extra import roots for environment-specific test dependencies
+# require_tools = ["node"] # Fail early when required executables are missing
+# path = ["tools/bin"] # Prepend source-repo-relative directories to PATH
+
+# [generated]
+# paths = ["docs/assets/data/**", "docs/assets/video.mp4"]
+# [[generated.freshness]]
+# files = ["docs/assets/data/**"]
+# sources = ["scripts/export_data.py", "data/source.csv"]
+
+# [[live_artifacts]]
+# file = "docs/assets/video.mp4"
+# url = "https://example.org/assets/video.mp4" # Run verify-live after publishing
 
 # [public.strip_json]
 # enabled = true

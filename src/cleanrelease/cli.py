@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import EXAMPLE, ConfigError, load, strings, table
+from .artifacts import check_generated, verify_live
 from .gates import check_tree
 from .gitops import ReleaseError, archive, export_tree, git, keep_history, orphan_commit, push, resolve_ref, resolve_remote
 from .public_tree import strip_json, test_public_tree
@@ -29,6 +30,7 @@ def _check(repo: Path, config: dict[str, Any], temp: Path) -> tuple[str, Path]:
     source = table(config, "source")
     public = table(config, "public")
     commit = resolve_ref(repo, str(source.get("ref", "HEAD")))
+    check_generated(repo, commit, table(config, "generated"), temp)
     tree = temp / "check"
     export_tree(repo, commit, tree, strings(public, "exclude"))
     strip_settings = public.get("strip_json", {})
@@ -48,7 +50,7 @@ def _check(repo: Path, config: dict[str, Any], temp: Path) -> tuple[str, Path]:
     if test_settings.get("enabled", False):
         test_tree = temp / "test-public"
         shutil.copytree(tree, test_tree, symlinks=True)
-        test_public_tree(test_tree, test_settings, temp)
+        test_public_tree(test_tree, test_settings, temp, repo)
     print(f"Check passed: {len([p for p in tree.rglob('*') if p.is_file()])} files")
     return commit, tree
 
@@ -228,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     publish_parser.add_argument("--force", action="store_true")
     publish_parser.add_argument("--no-public", action="store_true")
     commands.add_parser("install-check", help="test fresh installs of both distributions")
+    commands.add_parser("verify-live", help="compare published artifact sizes with local files")
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
     config_path = args.config if args.config.is_absolute() else repo / args.config
@@ -253,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
                 _publish(repo, config, args.dry_run, args.force, args.no_public, temp)
             elif args.command == "install-check":
                 _install_check(repo, config, temp)
+            elif args.command == "verify-live":
+                verify_live(repo, config.get("live_artifacts"))
         return 0
     except (ConfigError, ReleaseError, OSError) as exc:
         print(f"cleanrelease: {exc}", file=sys.stderr)

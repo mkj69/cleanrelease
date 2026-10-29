@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -110,7 +111,7 @@ def _allowed_imports(root: Path, extra: list[str]) -> set[str]:
     return allowed
 
 
-def test_public_tree(root: Path, settings: dict[str, Any], temp: Path) -> None:
+def test_public_tree(root: Path, settings: dict[str, Any], temp: Path, repo: Path | None = None) -> None:
     if not settings.get("enabled", False):
         return
     command = settings.get("command", [sys.executable, "-m", "pytest"])
@@ -122,6 +123,18 @@ def test_public_tree(root: Path, settings: dict[str, Any], temp: Path) -> None:
     (blocker / "sitecustomize.py").write_text(
         Path(__file__).with_name("sitecustomize.py").read_text(encoding="utf-8"), encoding="utf-8")
     env = os.environ.copy()
+    path_entries = strings(settings, "path")
+    if any(not entry for entry in path_entries):
+        raise ConfigError("test_public_tree.path entries must not be empty")
+    env["PATH"] = os.pathsep.join([*(str((repo or root) / entry) if not Path(entry).is_absolute()
+                                     else entry for entry in path_entries), env.get("PATH", "")])
+    required = strings(settings, "require_tools")
+    if any(not tool or Path(tool).name != tool for tool in required):
+        raise ConfigError("test_public_tree.require_tools must contain executable names")
+    missing = [tool for tool in required if shutil.which(tool, path=env["PATH"]) is None]
+    if missing:
+        raise ReleaseError("Public tree tests require missing tools: " + ", ".join(missing))
+    env["PYTEST_ADDOPTS"] = (env.get("PYTEST_ADDOPTS", "") + " -rs").strip()
     env["PYTHONPATH"] = os.pathsep.join(str(path) for path in (blocker, root / "src") if path.is_dir())
     env["PYTHONNOUSERSITE"] = "1"
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
@@ -130,6 +143,11 @@ def test_public_tree(root: Path, settings: dict[str, Any], temp: Path) -> None:
         result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True, check=False)
     except OSError as exc:
         raise ReleaseError(f"Public tree test command failed to start: {exc}") from exc
+    for line in (result.stdout + "\n" + result.stderr).splitlines():
+        if re.match(r"^SKIPPED \[\d+\] ", line) and re.search(
+                r"\b(missing|not found|not installed|not available|unavailable|not on PATH)\b",
+                line, re.IGNORECASE):
+            print(f"Possible missing-tool skip: {line}", file=sys.stderr)
     if result.returncode:
         detail = (result.stdout + "\n" + result.stderr).strip()[-3000:]
         raise ReleaseError(f"Public tree tests failed (exit {result.returncode}):\n{detail}")
